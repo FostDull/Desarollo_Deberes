@@ -1,7 +1,5 @@
 # Gemini.py
-#pip install fastapi uvicorn python-multipart pandas google-generativeai
-#pip install pandas
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,40 +8,51 @@ import google.generativeai as genai
 
 app = FastAPI()
 
-# CORS
+# Configuración CORS
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    # Agrega otros orígenes si es necesario
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,  # Cambia a ["*"] para permitir todos (solo dev)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Servir los archivos estáticos (index.html, etc.)
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
-# Tu cliente gemini
-client = genai.Client(
-    api_key="AIzaSyDJulUJdd1RZLvoBLds9bBvOvVDNMOHAx4"
+genai.configure(
+    api_key="AIzaSyDJulUJdd1RZvoBLds9bBvOvVDNMOHAx4"
 )
 
+# Montar carpeta estática en /static
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
+async def analyze(file: UploadFile = File(...), prompt: str = Form(...)):
     contents = await file.read()
     df = pd.read_excel(contents)
-    text_df = df.to_string()  # convertir a string para el prompt
 
-    # Configuración que quieres pasar
+    # Tomar solo 100 filas si es muy grande
+    if len(df) > 100:
+        df = df.sample(n=100, random_state=42)
+
+    text_df = df.to_string(index=False)
+
     generation_config = {
-        "temperature": 0.5,        
-        "top_p": 0.9,             
-        "top_k": 40,             
-        "max_output_tokens": 1024 
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "top_k": 40,
+        "max_output_tokens": 1024
     }
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"en base al párrafo '{text_df}', cuales son los 5 temas principales en las conversaciones en formato json",
+    full_prompt = f"{prompt}. Aquí tienes el texto:\n{text_df}"
+    response = genai.generate_content(
+        model="gemini-1.5-flash",
+        contents=full_prompt,
         generation_config=generation_config
     )
 
